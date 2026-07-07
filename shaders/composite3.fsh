@@ -153,7 +153,7 @@ void main() {
 
     #if defined(TONEMAPPING_ENABLED)
         #ifdef GRADIENTS_ENABLED
-            gl_FragData[0].rgb *= vec3(0.8 + pow(texcoord.x, 2.0) * 0.1, 0.9 + pow(texcoord.y, 2.0) * 0.3, 0.9 + pow(texcoord.y, 2.0) * 0.5);
+            gl_FragData[0].rgb *= vec3(0.8 + texcoord.x * texcoord.x * 0.1, 0.9 + texcoord.y * texcoord.y * 0.3, 0.9 + texcoord.y * texcoord.y * 0.5);
         #endif
     #endif
     #ifdef TONEMAPPING_ENABLED

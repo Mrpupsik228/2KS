@@ -18,32 +18,28 @@ uniform mat4 gbufferProjection;
 varying vec2 coord0;
 
 #ifdef BLOOM_ENABLED
-    vec3 bloomSample(in vec2 texcoord, in vec2 offset, in float lod) {
-        return textureLod(colortex1, texcoord + offset * pow(2.0, lod) / vec2(viewWidth, viewHeight), lod).rgb;
-    }
-    vec3 bloomKernel(in vec2 texcoord, in float lod) {
-        vec3 color = vec3(0.0);
-        color += bloomSample(texcoord, 0.5 * vec2(-2.0, -2.0) + vec2(0.0, 0.5), lod) * 0.125;
-        color += bloomSample(texcoord, 0.5 * vec2(-2.0,  2.0) + vec2(0.0, 0.5), lod) * 0.125;
-        color += bloomSample(texcoord, 0.5 * vec2( 2.0, -2.0) + vec2(0.0, 0.5), lod) * 0.125;
-        color += bloomSample(texcoord, 0.5 * vec2( 2.0,  2.0) + vec2(0.0, 0.5), lod) * 0.125;
-        color += bloomSample(texcoord, 0.5 * vec2(-1.0, -1.0) + vec2(0.0, 0.5), lod) * 0.5;
-        color += bloomSample(texcoord, 0.5 * vec2( 1.0,  1.0) + vec2(0.0, 0.5), lod) * 0.5;
-        color += bloomSample(texcoord, 0.5 * vec2(-1.0,  1.0) + vec2(0.0, 0.5), lod) * 0.5;
-        color += bloomSample(texcoord, 0.5 * vec2( 1.0, -1.0) + vec2(0.0, 0.5), lod) * 0.5;
-        color += bloomSample(texcoord, 0.5 * vec2( 0.0,  0.0) + vec2(0.0, 0.5), lod) * 0.125 * 4.0;
-        color += bloomSample(texcoord, 0.5 * vec2(-2.0,  0.0) + vec2(0.0, 0.5), lod) * 0.125 * 2.0;
-        color += bloomSample(texcoord, 0.5 * vec2( 2.0,  0.0) + vec2(0.0, 0.5), lod) * 0.125 * 2.0;
-        color += bloomSample(texcoord, 0.5 * vec2( 0.0, -2.0) + vec2(0.0, 0.5), lod) * 0.125 * 2.0;
-        color += bloomSample(texcoord, 0.5 * vec2( 0.0,  2.0) + vec2(0.0, 0.5), lod) * 0.125 * 2.0;
-        
+    vec3 bloomKernel(in vec2 texcoord, in float scale, in float lod) {
+        vec2 pixelSize = vec2(scale / viewWidth, scale / viewHeight);
+        vec3 color = textureLod(colortex1, texcoord, lod).rgb * 0.5;
+
+        color += textureLod(colortex1, texcoord + vec2( 1.0,  0.0) * pixelSize, lod).rgb * 0.25;
+        color += textureLod(colortex1, texcoord + vec2(-1.0,  0.0) * pixelSize, lod).rgb * 0.25;
+        color += textureLod(colortex1, texcoord + vec2( 0.0,  1.0) * pixelSize, lod).rgb * 0.25;
+        color += textureLod(colortex1, texcoord + vec2( 0.0, -1.0) * pixelSize, lod).rgb * 0.25;
+
+        color += textureLod(colortex1, texcoord + vec2( 2.0,  0.0) * pixelSize, lod).rgb * 0.125;
+        color += textureLod(colortex1, texcoord + vec2(-2.0,  0.0) * pixelSize, lod).rgb * 0.125;
+        color += textureLod(colortex1, texcoord + vec2( 0.0,  2.0) * pixelSize, lod).rgb * 0.125;
+        color += textureLod(colortex1, texcoord + vec2( 0.0, -2.0) * pixelSize, lod).rgb * 0.125;
+
         return color;
     }
 #endif
 
 #ifdef LENS_FLARE_ENABLED
-    vec3 flare(in vec2 texcoord, in vec2 sunPositionOnScreen, in vec3 color, in float dist, in float radius, in float softness) {
-        return color * smoothstep(0.0, softness * radius * dist, radius * dist - distance(-sunPositionOnScreen.xy, ((texcoord - sunPositionOnScreen.xy) * 2.0 - 1.0) / dist));
+    vec3 flare(in vec3 color, in float dist, in float radius, in float softness, in vec2 invSunPos, in vec2 flareDir) {
+        float radiusDist = radius * dist;
+        return color * smoothstep(0.0, softness * radiusDist, radiusDist - distance(invSunPos, flareDir / dist));
     }
 #endif
 
@@ -54,10 +50,9 @@ void main() {
     #endif
 
     #ifdef BLOOM_ENABLED
-        vec3 bloom = bloomKernel(coord0, 7.0);
-        bloom += bloomKernel(coord0, 6.0);
-        bloom += bloomKernel(coord0, 5.0);
-        bloom *= 0.1 * BLOOM_STRENGTH;
+        vec3 bloom = bloomKernel(coord0, 128.0, 7.0);
+        bloom += bloomKernel(coord0, 64.0, 6.0);
+        bloom *= 0.3 * BLOOM_STRENGTH;
 
         #ifdef BROKEN_BLOOM_ENABLED
             vec3 theseBrokenLines = vec3(0.0);
@@ -89,13 +84,14 @@ void main() {
         vec4 sunPositionOnScreen = gbufferProjection * vec4(sunPosition * 0.01, 1.0);
         sunPositionOnScreen /= sunPositionOnScreen.w;
 
-        vec2 viewResolution = vec2(viewWidth, viewHeight);
+        vec2 viewRes = vec2(viewWidth, viewHeight);
         float lensAvailability = 0.0;
-        for (int i = 0; i < 16; i++) {
-            float angle = float(i) / 16.0 * 6.2831853;
-            lensAvailability += step(0.9996, texture2D(colortex2, sunPositionOnScreen.st * 0.5 + 0.5 + (vec2(cos(angle), sin(angle)) * (sin(angle * 2.38123) * 0.5 + 0.5) * 64.0) / viewResolution).r);
+        for (int i = 0; i < 8; i++) {
+            float angle = float(i) * 0.785398163;
+            float spiral = sin(angle * 2.38123) * 0.5 + 0.5;
+            lensAvailability += step(0.9996, texture2D(colortex2, sunPositionOnScreen.st * 0.5 + 0.5 + vec2(cos(angle), sin(angle)) * spiral * 64.0 / viewRes).r);
         }
-        lensAvailability /= 16.0;
+        lensAvailability *= 0.125;
 
         vec2 texcoord = coord0 * 2.0 - 1.0;
         texcoord.x *= aspectRatio;
@@ -104,22 +100,18 @@ void main() {
         vec2 localSunPositionOnScreen = sunPositionOnScreen.st;
         localSunPositionOnScreen.x *= aspectRatio;
 
+        vec2 invSunPos = -localSunPositionOnScreen;
+        vec2 flareDir = (texcoord - localSunPositionOnScreen) * 2.0 - 1.0;
+
         vec3 lensFlare = vec3(0.0);
-        lensFlare += flare(texcoord, localSunPositionOnScreen, vec3(0.3, 1.0, 0.4) * 0.6, 3.9, 0.001, 2.0);
-        lensFlare += flare(texcoord, localSunPositionOnScreen, vec3(0.3, 1.0, 0.4) * 0.2, 3.8, 0.005, 0.2);
-        lensFlare += flare(texcoord, localSunPositionOnScreen, vec3(0.8, 0.6, 0.3) * 0.3, 3.5, 0.01, 0.2);
-        lensFlare += flare(texcoord, localSunPositionOnScreen, vec3(0.6, 0.9, 0.3) * 0.1, 3.4, 0.02, 0.1);
-        lensFlare += flare(texcoord, localSunPositionOnScreen, vec3(0.9, 0.7, 0.3) * 0.2, 3.2, 0.01, 0.1);
-        lensFlare += flare(texcoord, localSunPositionOnScreen, vec3(1.0, 0.0, 0.0) * 0.5, 3.0, 0.003, 1.0);
-        lensFlare += flare(texcoord, localSunPositionOnScreen, vec3(0.0, 1.0, 0.0) * 0.5, 2.95, 0.003, 1.0);
-        lensFlare += flare(texcoord, localSunPositionOnScreen, vec3(0.0, 0.0, 1.0) * 0.5, 2.9, 0.003, 1.0);
-        lensFlare += flare(texcoord, localSunPositionOnScreen, vec3(1.0, 0.6, 0.3) * 0.3, 2.8, 0.013, 0.3);
-        lensFlare += flare(texcoord, localSunPositionOnScreen, vec3(1.0, 0.3, 0.7) * 0.2, 2.7, 0.03, 0.3);
-        lensFlare += flare(texcoord, localSunPositionOnScreen, vec3(0.9, 0.5, 0.3) * 0.2, 2.1, 0.03, 0.3);
-        lensFlare += flare(texcoord, localSunPositionOnScreen, vec3(0.9, 0.4, 0.8) * 0.2, 2.2, 0.03, 0.3);
-        lensFlare += flare(texcoord, localSunPositionOnScreen, vec3(0.9, 0.2, 0.3) * 0.2, 2.4, 0.02, 0.8);
-        lensFlare += flare(texcoord, localSunPositionOnScreen, vec3(0.4, 0.8, 0.3) * 0.25, 1.8, 0.02, 0.3);
-        lensFlare += flare(texcoord, localSunPositionOnScreen, vec3(0.9, 0.8, 0.3) * 0.3, 1.5, 0.06, 0.3);
+        lensFlare += flare(vec3(0.3, 1.0, 0.4) * 0.6, 3.9, 0.001, 2.0, invSunPos, flareDir);
+        lensFlare += flare(vec3(0.3, 1.0, 0.4) * 0.2, 3.8, 0.005, 0.2, invSunPos, flareDir);
+        lensFlare += flare(vec3(0.8, 0.6, 0.3) * 0.3, 3.5, 0.01, 0.2, invSunPos, flareDir);
+        lensFlare += flare(vec3(1.0, 0.0, 0.0) * 0.5, 3.0, 0.003, 1.0, invSunPos, flareDir);
+        lensFlare += flare(vec3(0.0, 1.0, 0.0) * 0.5, 2.95, 0.003, 1.0, invSunPos, flareDir);
+        lensFlare += flare(vec3(0.0, 0.0, 1.0) * 0.5, 2.9, 0.003, 1.0, invSunPos, flareDir);
+        lensFlare += flare(vec3(1.0, 0.6, 0.3) * 0.3, 2.8, 0.013, 0.3, invSunPos, flareDir);
+        lensFlare += flare(vec3(0.9, 0.8, 0.3) * 0.3, 1.5, 0.06, 0.3, invSunPos, flareDir);
         lensFlare = floor(lensFlare * 16.0 + random(texcoord + sin(frameTimeCounter) * 13.23842)) / 16.0;
         lensFlare *= 0.5 * LENS_FLARE_STRENGTH;
 
