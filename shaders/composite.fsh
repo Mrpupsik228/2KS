@@ -83,12 +83,12 @@ void main() {
         vec3 shadowScreenPos = shadowNDCPos * 0.5 + 0.5;
 
         float shadow = 0.0;
-        for (int x = -1; x <= 1; x++) {
-            for (int y = -1; y <= 1; y++) {
-                shadow += texture(shadowtex0, shadowScreenPos + vec3(float(x), float(y), 0.0) / float(SHADOWS_QUALITY));
-            }
-        }
-        shadow /= 9.0;
+        float invShadowRes = 1.0 / float(shadowMapResolution);
+        shadow += texture(shadowtex0, shadowScreenPos + vec3(-0.5, -0.5, 0.0) * invShadowRes);
+        shadow += texture(shadowtex0, shadowScreenPos + vec3( 0.5, -0.5, 0.0) * invShadowRes);
+        shadow += texture(shadowtex0, shadowScreenPos + vec3(-0.5,  0.5, 0.0) * invShadowRes);
+        shadow += texture(shadowtex0, shadowScreenPos + vec3( 0.5,  0.5, 0.0) * invShadowRes);
+        shadow *= 0.25;
         shadow *= min(sunNormalProduct + moonNormalProduct, 1.0);
         #ifdef FOG_ENABLED
             shadow = mix(0.5, shadow, pow(FOG_DISTANCE - 0.1, 0.6));
